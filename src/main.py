@@ -58,7 +58,7 @@ if __name__ == "__main__":
     if not ret:
       break
 
-    cv2.imshow('frame', frame)
+    cv2.imshow('Frame', frame)
 
     res = np.copy(frame)
 
@@ -78,20 +78,41 @@ if __name__ == "__main__":
 
       res = cv2.rectangle(res, topLeft, bottomRight, (255, 0, 0))
 
-
+    # blur image
     blur = cv2.GaussianBlur(frame, (5, 5), 3.)
+    # convert to HSV
     frmHsv = cv2.cvtColor(blur, cv2.COLOR_BGR2HSV)
-    # rangeRes = np.zeros(frame.shape, np.uint8)
+    
+    # color thresholding
     lowerColor = np.array([MIN_H_BLUE / 2, 100, 80])
     upperColor = np.array([MAX_H_BLUE / 2, 255, 255])
     rangeRes = cv2.inRange(frmHsv, lowerColor, upperColor)
 
+    # morphological opening
+    kernel = np.ones((5,5), np.uint8)
+    rangeRes = cv2.morphologyEx(rangeRes, cv2.MORPH_OPEN, kernel)
 
-    # TODO: erode, dilate
+    cv2.imshow("Binary", rangeRes)
 
-    contours = cv2.findContours(rangeRes, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
+    # find objects
+    _, contours, _ = cv2.findContours(rangeRes, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
 
-    pdb.set_trace()
+    # find largest area
+    maxArea = -1
+    maxIdx = -1
+    for idx, cnt in enumerate(contours):
+      area = cv2.contourArea(cnt)
+      if area > maxArea:
+        maxArea = area
+        maxIdx = idx
+
+    if maxIdx >= 0:
+      x,y,w,h = cv2.boundingRect(contours[maxIdx])
+      cv2.rectangle(res, (x,y), (x+w,y+h), (0,255,0), 3)
+      cv2.circle(res, (x+w/2,y+h/2), 3, (0,255,0), -1)
+      # cv2.drawContours(res, contours, maxIdx, (0,255,0), 3)
+
+    cv2.imshow("Contours", res)
 
     if cv2.waitKey(1) & 0xFF == ord('q'):
       break
