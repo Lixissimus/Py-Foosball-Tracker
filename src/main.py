@@ -14,12 +14,11 @@ if __name__ == "__main__":
   stateSize = 6
   measSize = 4
   contrSize = 0
-  valType = cv2.CV_32F
 
-  kf = cv2.KalmanFilter(stateSize, measSize, contrSize, valType)
+  kf = cv2.KalmanFilter(stateSize, measSize, contrSize, cv2.CV_32F)
 
   state = np.zeros((stateSize, 1), np.float32)
-  meas = np.array((measSize, 1), np.float32)
+  meas = np.zeros((measSize, 1), np.float32)
 
   kf.transitionMatrix = np.identity(stateSize, np.float32)
 
@@ -37,7 +36,7 @@ if __name__ == "__main__":
   kf.processNoiseCov.put(28, 1e-2)
   kf.processNoiseCov.put(35, 1e-2)
 
-  kf.measurementNoiseCov = np.identity(stateSize, np.float32) * 1e-1
+  kf.measurementNoiseCov = np.identity(measSize, np.float32) * 1e-1
 
   cap = cv2.VideoCapture(0)
   if not cap.isOpened():
@@ -65,7 +64,6 @@ if __name__ == "__main__":
     if found:
       kf.transitionMatrix.put(2, dT)
       kf.transitionMatrix.put(9, dT)
-      print "dT:", dT
 
       state = kf.predict()
 
@@ -73,10 +71,10 @@ if __name__ == "__main__":
       y = state.item(1)
       w = state.item(4)
       h = state.item(5)
-      topLeft = (x - w/2, y - h/2)
-      bottomRight = (x + w/2, y + h/2)
+      topLeft = (int(x - w/2) - 3, int(y - h/2) - 3)
+      bottomRight = (int(x + w/2) + 3, int(y + h/2) + 3)
 
-      res = cv2.rectangle(res, topLeft, bottomRight, (255, 0, 0))
+      res = cv2.rectangle(res, topLeft, bottomRight, (255, 0, 0), 2)
 
     # blur image
     blur = cv2.GaussianBlur(frame, (5, 5), 3.)
@@ -102,15 +100,54 @@ if __name__ == "__main__":
     maxIdx = -1
     for idx, cnt in enumerate(contours):
       area = cv2.contourArea(cnt)
-      if area > maxArea:
+      if area > 500 and area > maxArea:
         maxArea = area
         maxIdx = idx
 
     if maxIdx >= 0:
+      # a ball was detected
+      notFoundCount = 0
+
+      # draw bounding rect with center point
       x,y,w,h = cv2.boundingRect(contours[maxIdx])
-      cv2.rectangle(res, (x,y), (x+w,y+h), (0,255,0), 3)
-      cv2.circle(res, (x+w/2,y+h/2), 3, (0,255,0), -1)
-      # cv2.drawContours(res, contours, maxIdx, (0,255,0), 3)
+      cv2.rectangle(res, (x,y), (x+w,y+h), (0,255,0), 2)
+      center = (x + w/2, y + h/2)
+      cv2.circle(res, center, 3, (0,255,0), -1)
+
+      # update measurements (z_x, z_y, z_w, z_h)
+      meas.put(0, center[0])
+      meas.put(1, center[1])
+      meas.put(2, w)
+      meas.put(3, h)
+
+      if not found:
+        # first detection, do initialization
+        kf.errorCovPre.put(0, 1)
+        kf.errorCovPre.put(7, 1)
+        kf.errorCovPre.put(14, 1)
+        kf.errorCovPre.put(21, 1)
+        kf.errorCovPre.put(28, 1)
+        kf.errorCovPre.put(35, 1)
+
+        state.put(0, meas.item(0))
+        state.put(1, meas.item(1))
+        state.put(2, 0)
+        state.put(3, 0)
+        state.put(4, meas.item(2))
+        state.put(5, meas.item(3))
+
+        found = True
+      else:
+        # correct kalman filter with measurements
+        # pdb.set_trace()
+        kf.correct(meas)
+    else:
+      # no ball was detected
+      notFoundCount += 1
+      if notFoundCount >= 50:
+        found = False
+      else:
+        kf.statePost = state
 
     cv2.imshow("Contours", res)
 
