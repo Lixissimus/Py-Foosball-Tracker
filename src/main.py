@@ -8,8 +8,8 @@ if __name__ == "__main__":
   print "Starting Foosball Tracker"
   print "Using OpenCV Version", cv2.__version__
 
-  MIN_H_BLUE = 200
-  MAX_H_BLUE = 300
+  MIN_H_BLUE = 106
+  MAX_H_BLUE = 180
   
   stateSize = 6
   measSize = 4
@@ -38,10 +38,26 @@ if __name__ == "__main__":
 
   kf.measurementNoiseCov = np.identity(measSize, np.float32) * 1e-1
 
-  cap = cv2.VideoCapture(0)
+  # cap = cv2.VideoCapture(0)
+  cap = cv2.VideoCapture("C:\\Users\\Felix\\Documents\\Projects\\Py-Foosball-Tracker\\assets\\videos\\test-vid-blue-yellow.avi")
   if not cap.isOpened():
     print "Could not access camera!"
     sys.exit(1);
+
+  def nothing(x):
+    pass
+
+  cv2.namedWindow('Binary')
+  cv2.namedWindow('Frame')
+
+  cv2.createTrackbar('h_low', 'Binary', 20, 179, nothing)
+  cv2.createTrackbar('h_high', 'Binary', 26, 179, nothing)
+  cv2.createTrackbar('s_low', 'Binary', 106, 255, nothing)
+  cv2.createTrackbar('s_high', 'Binary', 255, 255, nothing)
+  cv2.createTrackbar('v_low', 'Binary', 102, 255, nothing)
+  cv2.createTrackbar('v_high', 'Binary', 255, 255, nothing)
+
+  cv2.createTrackbar('playback', 'Frame', 30, 200, nothing)
 
   ticks = 0.
   found = False
@@ -76,18 +92,31 @@ if __name__ == "__main__":
 
       res = cv2.rectangle(res, topLeft, bottomRight, (255, 0, 0), 2)
 
+    tableMask = np.zeros((frame.shape[0], frame.shape[1]), np.uint8)
+    tablePath = np.array([[386,50], [679,84], [631,478], [53,323]])
+    cv2.fillPoly(tableMask, [tablePath], (255,255,255))
+
+    masked = cv2.bitwise_and(frame, frame, mask=tableMask)
+    cv2.imshow('Masked', masked)
+
     # blur image
-    blur = cv2.GaussianBlur(frame, (5, 5), 3.)
+    blur = cv2.GaussianBlur(masked, (5, 5), 3.)
     # convert to HSV
     frmHsv = cv2.cvtColor(blur, cv2.COLOR_BGR2HSV)
     
     # color thresholding
-    lowerColor = np.array([MIN_H_BLUE / 2, 100, 80])
-    upperColor = np.array([MAX_H_BLUE / 2, 255, 255])
+    hLow = cv2.getTrackbarPos('h_low', 'Binary')
+    hHigh = cv2.getTrackbarPos('h_high', 'Binary')
+    sLow = cv2.getTrackbarPos('s_low', 'Binary')
+    sHigh = cv2.getTrackbarPos('s_high', 'Binary')
+    vLow = cv2.getTrackbarPos('v_low', 'Binary')
+    vHigh = cv2.getTrackbarPos('v_high', 'Binary')
+    lowerColor = np.array([hLow, sLow, vLow])
+    upperColor = np.array([hHigh, sHigh, vHigh])
     rangeRes = cv2.inRange(frmHsv, lowerColor, upperColor)
 
     # morphological opening
-    kernel = np.ones((5,5), np.uint8)
+    kernel = np.ones((2,2), np.uint8)
     rangeRes = cv2.morphologyEx(rangeRes, cv2.MORPH_OPEN, kernel)
 
     cv2.imshow("Binary", rangeRes)
@@ -100,7 +129,7 @@ if __name__ == "__main__":
     maxIdx = -1
     for idx, cnt in enumerate(contours):
       area = cv2.contourArea(cnt)
-      if area > 500 and area > maxArea:
+      if area > 0 and area > maxArea:
         maxArea = area
         maxIdx = idx
 
@@ -151,7 +180,8 @@ if __name__ == "__main__":
 
     cv2.imshow("Contours", res)
 
-    if cv2.waitKey(1) & 0xFF == ord('q'):
+    waitTime = cv2.getTrackbarPos('playback', 'Frame') + 1
+    if cv2.waitKey(waitTime) & 0xFF == ord('q'):
       break
 
   cap.release()
