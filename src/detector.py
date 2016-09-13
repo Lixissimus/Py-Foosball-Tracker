@@ -1,7 +1,9 @@
 import numpy as np
 import cv2
 
-class BallDetector:
+import pdb
+
+class KalmanBallDetector:
     def __init__(self):
         # detection color setup
         self.hLow = 8
@@ -68,7 +70,7 @@ class BallDetector:
         self.ticks = 0
         self.lostBallCounter = 0
         self.previousFrame = None
-        self.tablePath = np.array([[386,50], [679,84], [631,478], [53,323]])
+        self.tablePath = np.array([[275,53], [570,53], [696,423], [154,428]])
         # region-of-interest radius
         self.roiRadius = 100
         self.lostBallThreshold = 50
@@ -199,3 +201,115 @@ class BallDetector:
     def getBestEstimate(self):
         return self.bestEstimate
         # return int(self.state.item(0)), int(self.state.item(1))
+
+class ParticleBallDetector:
+    def __init__(self):
+        self.likelihoodField = None
+        self.tablePath = np.array([[275,53], [570,53], [696,423], [154,428]])
+        self.tableMask = None
+
+        self.deskewWidth = 350
+        self.deskewHeight = 500
+
+        self.nrParticles = 1000
+        self.particles = None
+        self.weights = None
+
+    def createLikelihoodField(self, frame):
+        if self.tableMask is None:
+            self.createTableMask(frame)
+
+        self.likelihoodField = np.zeros(
+            (frame.shape[0], frame.shape[1]), np.uint8)
+
+        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        edges = cv2.Canny(gray, 50, 150, apertureSize=3)
+
+        # detect bars by finding lines
+        minLineLength = 190
+        lines = cv2.HoughLines(edges, 1, np.pi/180, minLineLength)
+        if lines is not None:
+            for line in lines:
+                rho,theta = line[0]
+                thetaDeg = theta/np.pi*180
+
+                # we're looking for horizontal lines,
+                # filter by line angle
+                if thetaDeg < 88 or thetaDeg > 92:
+                    continue
+
+                a = np.cos(theta)
+                b = np.sin(theta)
+                x0 = a*rho
+                y0 = b*rho
+                x1 = int(x0 + 1000*(-b))
+                y1 = int(y0 + 1000*(a))
+                x2 = int(x0 - 1000*(-b))
+                y2 = int(y0 - 1000*(a))
+
+                cv2.line(self.likelihoodField,(x1,y1),(x2,y2),(255,255,255),2)
+
+        
+        # self.likelihoodField = cv2.bitwise_and(
+        #     self.likelihoodField, self.likelihoodField, mask=self.tableMask)
+
+        # deskew likelihood field
+        pts1 = np.float32(self.tablePath)
+        pts2 = np.float32(
+            [[0,0], [self.deskewWidth,0], 
+            [self.deskewWidth,self.deskewHeight], [0,self.deskewHeight]])
+
+        M = cv2.getPerspectiveTransform(pts1, pts2)
+
+        self.likelihoodField = cv2.warpPerspective(
+            self.likelihoodField, M, (self.deskewWidth,self.deskewHeight))
+
+        # apply some gaussian noise
+        self.likelihoodField = cv2.GaussianBlur(
+            self.likelihoodField, (21,21), 10)
+
+        cv2.imshow('likelihood field', self.likelihoodField)
+
+    def createTableMask(self, frame):
+        self.tableMask = np.zeros((frame.shape[0], frame.shape[1]), np.uint8)
+        cv2.fillPoly(self.tableMask, [self.tablePath], (255,255,255))
+
+    def initParticles(self):
+        rand = np.random.uniform(0, 1, (self.nrParticles,2))
+        self.particles = np.full(
+            (self.nrParticles,2), (self.deskewWidth, self.deskewHeight)) * rand
+        self.weights = np.full((self.nrParticles,1), 1./self.nrParticles)
+
+    def drawParticles(self, frame):
+        locations = self.particles.astype(int)
+        for loc in locations:
+            cv2.circle(frame, (loc[0],loc[1]), 1, (0,255,0), -1)
+
+    def initFilter(self, frame):
+        self.createLikelihoodField(frame)
+        self.initParticles()
+
+    def feedFrame(self, frame):
+        # for some debug printing
+        def onMouse(evt, x, y, a, b):
+            print x, y
+
+        cv2.namedWindow('frame')
+        cv2.setMouseCallback('frame', onMouse)
+        cv2.imshow('frame', frame)
+
+        # deskew likelihood field
+        pts1 = np.float32(self.tablePath)
+        pts2 = np.float32(
+            [[0,0], [self.deskewWidth,0], 
+            [self.deskewWidth,self.deskewHeight], [0,self.deskewHeight]])
+
+        M = cv2.getPerspectiveTransform(pts1, pts2)
+
+        deskewed = cv2.warpPerspective(
+            frame, M, (self.deskewWidth,self.deskewHeight))
+
+        self.drawParticles(deskewed)
+
+        cv2.imshow('deskewed', deskewed)
+

@@ -7,5 +7,12 @@
 		{
 			"path": "src"
 		}
-	]
+	],
+  "build_systems":
+    [
+        {
+            "name": "main py",
+            "cmd": ["python", "main.py"]
+        }
+    ]
 }
