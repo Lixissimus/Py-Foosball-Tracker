@@ -208,12 +208,14 @@ class ParticleBallDetector:
         self.tablePath = np.array([[275,53], [570,53], [696,423], [154,428]])
         self.tableMask = None
 
-        self.deskewWidth = 350
+        self.deskewWidth = 370
         self.deskewHeight = 500
 
-        self.nrParticles = 1000
+        self.nrParticles = 500
         self.particles = None
         self.weights = None
+
+        self.motionNoiseStdDev = 50
 
     def createLikelihoodField(self, frame):
         if self.tableMask is None:
@@ -278,7 +280,49 @@ class ParticleBallDetector:
         rand = np.random.uniform(0, 1, (self.nrParticles,2))
         self.particles = np.full(
             (self.nrParticles,2), (self.deskewWidth, self.deskewHeight)) * rand
-        self.weights = np.full((self.nrParticles,1), 1./self.nrParticles)
+        self.weights = np.full(self.nrParticles, 1./self.nrParticles)
+
+    def applyMotion(self):
+        noise = np.random.normal(
+            0, self.motionNoiseStdDev, (self.nrParticles,2))
+        self.particles += noise
+
+    def calculateWeights(self):
+        weightSum = 0
+        for idx, particle in enumerate(self.particles):
+            x, y = particle[0], particle[1]
+            if x < 0 or x >= self.deskewWidth or y < 0 or y >= self.deskewHeight:
+                self.weights[idx] = 0
+            else:
+                self.weights[idx] = self.likelihoodField[y][x]/255.0
+                weightSum += self.weights[idx]
+        for idx in range(0, self.nrParticles):
+            self.weights[idx] /= weightSum
+
+    def resample(self):
+        weightSum = 1.0
+        stepSize = weightSum / self.nrParticles
+        offset = np.random.uniform(0, stepSize)
+        result = []
+
+        idx = 0
+        passed = self.weights[idx]
+
+        while (offset <= weightSum):
+            while passed < offset:
+                idx += 1
+                passed += self.weights[idx]
+            while (offset <= passed):
+                result.append(idx)
+                offset += stepSize
+
+        newParticles = np.zeros((self.nrParticles, 2))
+        for idx, particleIdx in enumerate(result):
+            newParticles[idx][0] = self.particles[particleIdx][0]
+            newParticles[idx][1] = self.particles[particleIdx][1]
+
+        self.particles = newParticles
+
 
     def drawParticles(self, frame):
         locations = self.particles.astype(int)
@@ -298,7 +342,7 @@ class ParticleBallDetector:
         cv2.setMouseCallback('frame', onMouse)
         cv2.imshow('frame', frame)
 
-        # deskew likelihood field
+        # deskew frame
         pts1 = np.float32(self.tablePath)
         pts2 = np.float32(
             [[0,0], [self.deskewWidth,0], 
@@ -309,7 +353,11 @@ class ParticleBallDetector:
         deskewed = cv2.warpPerspective(
             frame, M, (self.deskewWidth,self.deskewHeight))
 
+        self.applyMotion()
+        self.calculateWeights()
+        self.resample()
         self.drawParticles(deskewed)
 
         cv2.imshow('deskewed', deskewed)
+
 

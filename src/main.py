@@ -9,6 +9,7 @@ if __name__ == "__main__":
     print "Using OpenCV Version", cv2.__version__
 
     cap = cv2.VideoCapture("C:\\Users\\Felix\\Documents\\Projects\\Py-Foosball-Tracker\\assets\\videos\\test-vid-blue-yellow-better.avi")
+    # cap = cv2.VideoCapture("C:\\Users\\Felix\\Documents\\Projects\\Py-Foosball-Tracker\\assets\\videos\\birds-eye.wmv")
     if not cap.isOpened():
         print "Could not access camera!"
         sys.exit(1)
@@ -31,7 +32,7 @@ if __name__ == "__main__":
         
         # cv2.imshow('frame', frame)
 
-        if cv2.waitKey(0) & 0xFF == ord('q'):
+        if cv2.waitKey(1) & 0xFF == ord('q'):
             break
 
     cap.release()
